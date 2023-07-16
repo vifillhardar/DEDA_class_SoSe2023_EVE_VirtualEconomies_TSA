@@ -1,7 +1,8 @@
 import csv
 
-# Open the CSV file and read the data
-with open('money_supply.csv', 'r') as file:
+# Open the input CSV file which is located in the extracted_data folder 
+# which is scraped from CCP's MME and read the data
+with open('Data/extracted_data/money_supply.csv', 'r') as file:
     reader = csv.reader(file, delimiter=';')
     header = next(reader)
     data = list(reader)

@@ -1,15 +1,21 @@
+import os
 import requests
 import zipfile
+
+#Here we extract the zip file from a link on CCP's webpage, 
+#this zip file is then extracted into a folder called 'extracted_data'
 
 def download_and_extract_zip(url):
     response = requests.get(url)
     if response.status_code == 200:
-        with open('data.zip', 'wb') as file:
+        zip_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.zip')
+        with open(zip_file_path, 'wb') as file:
             file.write(response.content)
             print('Zip file downloaded successfully.')
 
-        with zipfile.ZipFile('data.zip', 'r') as zip_ref:
-            zip_ref.extractall('extracted_data')
+        extraction_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'extracted_data')
+        with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+            zip_ref.extractall(extraction_path)
             print('Zip file extracted successfully.')
     else:
         print('Failed to download the zip file.')

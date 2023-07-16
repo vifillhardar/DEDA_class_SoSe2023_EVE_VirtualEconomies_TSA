@@ -1,22 +1,14 @@
+import os
 import pandas as pd
-from statsmodels.tsa.stattools import adfuller, grangercausalitytests
+import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+from statsmodels.tsa.stattools import adfuller, grangercausalitytests
 
-# Read the data from the csv files and process it
-cpi_data = pd.read_csv('filtered_data_cpi.csv', sep=';')
-cpi_data['Date'] = pd.to_datetime(cpi_data['Date'])
-cpi_data.set_index('Date', inplace=True)
-
-money_supply_data = pd.read_csv('filtered_data_ms.csv', sep=';')
-money_supply_data['Date'] = pd.to_datetime(money_supply_data['Date'])
-money_supply_data.set_index('Date', inplace=True)
-
-cpi_data['Inflation_Rate'] = cpi_data['price_change'].pct_change() * 100
-money_supply_data['MoneySupply_Growth'] = money_supply_data['MoneySupply'].pct_change() * 100
-
-merged_data = cpi_data.merge(money_supply_data, left_index=True, right_index=True)
-merged_data.dropna(inplace=True)
+def read_and_process_data(file_path, date_column, value_column):
+    data = pd.read_csv(file_path, sep=';', parse_dates=[date_column])
+    data.set_index(date_column, inplace=True)
+    data[value_column] = data[value_column].astype(float)
+    return data
 
 def check_stationarity(series, name):
     result = adfuller(series)
@@ -24,69 +16,55 @@ def check_stationarity(series, name):
     print(f"ADF Statistic: {result[0]}")
     print(f"p-value: {result[1]}")
     print("Stationary" if result[1] < 0.05 else "Non-Stationary")
-    print("")
+    print()
 
-# Check stationarity of inflation rate and money supply growth
-check_stationarity(merged_data['Inflation_Rate'], "Inflation Rate")
-check_stationarity(merged_data['MoneySupply_Growth'], "Money Supply Growth")
+def perform_granger_causality_test(data, max_lag):
+    lag_lengths = []
+    p_values = []
 
-## Perform the Granger causality test on stationary series
+    for lag in range(1, max_lag + 1):
+        results = grangercausalitytests(data, maxlag=lag)
+        p_value = results[lag][0]['ssr_chi2test'][1]
+        lag_lengths.append(lag)
+        p_values.append(p_value)
 
-# Extract the stationary series
-stationary_data = merged_data[['MoneySupply_Growth', 'Inflation_Rate']].dropna()
+    return lag_lengths, p_values
 
-# Define the maximum lag for the test (in our case: 10)
-max_lag = 10
+def plot_granger_causality(lag_lengths, p_values):
+    plt.plot(lag_lengths, p_values, marker='o')
+    plt.xlabel('Lag Length')
+    plt.ylabel('Granger Causality p-value')
+    plt.title('Sensitivity Analysis: Lag Length vs Granger Causality')
+    plt.savefig('Causation_Analysis/granger_causality_plot.png', transparent=True)
+    plt.show()
 
-# Create lists to store the lag lengths and corresponding p-values
-lag_lengths = []
-p_values = []
+def save_p_values_to_csv(lag_lengths, p_values):
+    data = {'Lag Length': lag_lengths, 'p-value': p_values}
+    df = pd.DataFrame(data)
+    df.to_csv('Causation_Analysis/granger_causality_p_values.csv', index=False)
 
-# Iterate over the lag lengths
-for lag in range(1, max_lag + 1):
-    # Run the Granger causality test
-    results = grangercausalitytests(merged_data[['MoneySupply_Growth', 'Inflation_Rate']].dropna(), maxlag=lag)
-    # Extract the p-value for the lag
-    p_value = results[lag][0]['ssr_chi2test'][1]
-    # Store the lag length and p-value
-    lag_lengths.append(lag)
-    p_values.append(p_value)
+def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    causation_dir = os.path.dirname(script_dir)
+    data_dir = os.path.join(causation_dir, 'Data')
 
-# Set up the figure
-fig, ax = plt.subplots()
-ax.set_xlabel('Lag Length')
-ax.set_ylabel('Granger Causality p-value')
-ax.set_title('Sensitivity Analysis: Lag Length vs Granger Causality')
+    cpi_data_path = os.path.join(data_dir, 'filtered_data_cpi_inflation.csv')
+    cpi_data = read_and_process_data(cpi_data_path, 'Date', 'Inflation')
 
-# Initialize the line plot
-line, = ax.plot([], [], marker='o')
+    ms_growth_data_path = os.path.join(data_dir, 'filtered_data_ms_growth.csv')
+    money_supply_growth_data = read_and_process_data(ms_growth_data_path, 'Date', 'GrowthRate')
 
-# Set the total number of frames and frame delay
-total_frames = len(lag_lengths)
-frame_delay = 200
+    merged_data = cpi_data.merge(money_supply_growth_data, left_index=True, right_index=True)
+    merged_data.dropna(inplace=True)
 
-# Function to update the line plot for each frame of the animation
-def update(frame):
-    line.set_data(lag_lengths[:frame + 1], p_values[:frame + 1])
-    ax.set_xlim(1, frame + 1)
-    ax.set_ylim(0, max(p_values[:frame + 1]) + 0.05)
-    return line,
+    check_stationarity(merged_data['Inflation'], "Inflation Rate")
+    check_stationarity(merged_data['GrowthRate'], "Money Supply Growth Rate")
 
-# Function to initialize the line plot
-def init():
-    line.set_data([], [])
-    return line,
+    stationary_data = merged_data[['GrowthRate', 'Inflation']].dropna()
+    lag_lengths, p_values = perform_granger_causality_test(stationary_data, max_lag=10)
 
-# Create the animation
-ani = animation.FuncAnimation(fig, update, frames=total_frames, init_func=init, blit=True)
+    plot_granger_causality(lag_lengths, p_values)
+    save_p_values_to_csv(lag_lengths, p_values)
 
-# Save the animation as an animated GIF with a transparent background
-ani.save('granger_causality_animation.gif', writer='pillow', dpi=300, 
-         fps=1000/frame_delay, bitrate=3000)
-
-# Print the lag lengths and corresponding p-values
-for lag, p_value in zip(lag_lengths, p_values):
-    print(f"Lag Length: {lag}, p-value: {p_value}")
-
-# Finally, show the plot
-plt.show()
+if __name__ == "__main__":
+    main()
